@@ -15,7 +15,7 @@ import (
 
 	"github.com/decred/dcrd/chaincfg"
 	"github.com/decred/dcrd/chaincfg/chainhash"
-	"github.com/decred/dcrd/dcrjson"
+	// "github.com/decred/dcrd/dcrjson"
 	"github.com/decred/dcrutil"
 	"github.com/decred/dcrutil/hdkeychain"
 	"github.com/decred/dcrwallet/waddrmgr"
@@ -600,6 +600,7 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 		return "/", http.StatusSeeOther
 	}
 
+	// Only accept address if user does not already have a PubKeyAddr set.
 	dbMap := controller.GetDbMap(c)
 	user := models.GetUserById(dbMap, session.Values["UserId"].(int64))
 	if len(user.UserPubKeyAddr) > 0 {
@@ -619,6 +620,7 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 		return controller.Address(c, r)
 	}
 
+	// Get dcrutil.Address for user from pubkey address string
 	u, err := dcrutil.DecodeAddress(userPubKeyAddr, controller.params)
 	if err != nil {
 		session.AddFlash("Couldn't decode address", "address")
@@ -631,6 +633,7 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 		return controller.Address(c, r)
 	}
 
+	// Get new address from pool wallets
 	if controller.RPCIsStopped() {
 		return "/error", http.StatusSeeOther
 	}
@@ -640,6 +643,7 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 		return "/error", http.StatusSeeOther
 	}
 
+	// From new address (pkh), get pubkey address
 	if controller.RPCIsStopped() {
 		return "/error", http.StatusSeeOther
 	}
@@ -650,12 +654,14 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 	}
 	poolPubKeyAddr := poolValidateAddress.PubKeyAddr
 
+	// Get back Address from pool's new pubkey address
 	p, err := dcrutil.DecodeAddress(poolPubKeyAddr, controller.params)
 	if err != nil {
 		controller.handlePotentialFatalError("DecodeAddress poolPubKeyAddr", err)
 		return "/error", http.StatusSeeOther
 	}
 
+	// Create the the multisig script. Result includes a P2SH and RedeemScript.
 	if controller.RPCIsStopped() {
 		return "/error", http.StatusSeeOther
 	}
@@ -665,6 +671,7 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 		return "/error", http.StatusSeeOther
 	}
 
+	// Serialize the RedeemScript (hex string -> []byte)
 	if controller.RPCIsStopped() {
 		return "/error", http.StatusSeeOther
 	}
@@ -681,12 +688,15 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 		controller.handlePotentialFatalError("CreateMultisig DecodeString", err)
 		return "/error", http.StatusSeeOther
 	}
+
+	// Import the RedeemScript
 	err = controller.rpcServers.ImportScript(serializedScript, int(bestBlockHeight))
 	if err != nil {
 		controller.handlePotentialFatalError("ImportScript", err)
 		return "/error", http.StatusSeeOther
 	}
 
+	// Get the pool fees address for this user
 	uid64 := session.Values["UserId"].(int64)
 	userFeeAddr, err := controller.FeeAddressForUserID(int(uid64))
 	if err != nil {
@@ -694,7 +704,9 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 		return "/error", http.StatusSeeOther
 	}
 
-	models.UpdateUserById(dbMap, uid64, createMultiSig.Address,
+	// Update the user's DB entry with multisig, user and pool pubkey
+	// addresses, and the fee address 
+	models.UpdateUserByID(dbMap, uid64, createMultiSig.Address,
 		createMultiSig.RedeemScript, poolPubKeyAddr, userPubKeyAddr,
 		userFeeAddr.EncodeAddress(), bestBlockHeight)
 
@@ -825,7 +837,7 @@ func (controller *MainController) Error(c web.C, r *http.Request) (string, int) 
 	c.Env["RateLimited"] = r.URL.Query().Get("rl")
 	c.Env["Referer"] = r.URL.Query().Get("r")
 
-	var widgets = controller.Parse(t, "error", c.Env)
+	widgets := controller.Parse(t, "error", c.Env)
 	c.Env["Content"] = template.HTML(widgets)
 
 	return controller.Parse(t, "main", c.Env), http.StatusOK
@@ -843,9 +855,12 @@ func (controller *MainController) Index(c web.C, r *http.Request) (string, int) 
 	c.Env["PoolLink"] = controller.poolLink
 
 	t := controller.GetTemplate(c)
+	//t := c.Env["Template"].(*template.Template)
 
+	// execute the named template with data in c.Env 
 	widgets := helpers.Parse(t, "home", c.Env)
 
+	// With that kind of flags template can "figure out" what route is being rendered
 	c.Env["IsIndex"] = true
 
 	c.Env["Title"] = "Decred Stake Pool - Welcome"
@@ -1204,10 +1219,11 @@ func (controller *MainController) SignIn(c web.C, r *http.Request) (string, int)
 	t := controller.GetTemplate(c)
 	session := controller.GetSession(c)
 
+	// Tell main.html what route is being rendered
 	c.Env["IsSignIn"] = true
 
 	c.Env["Flash"] = session.Flashes("auth")
-	var widgets = controller.Parse(t, "auth/signin", c.Env)
+	widgets := controller.Parse(t, "auth/signin", c.Env)
 
 	c.Env["Title"] = "Decred Stake Pool - Sign In"
 	c.Env["Content"] = template.HTML(widgets)
@@ -1223,8 +1239,8 @@ func (controller *MainController) SignInPost(c web.C, r *http.Request) (string, 
 	session := controller.GetSession(c)
 	dbMap := controller.GetDbMap(c)
 
+	// Validate email and password combination.
 	user, err := helpers.Login(dbMap, email, password)
-
 	if err != nil {
 		log.Infof(email+" login failed %v", err)
 		session.AddFlash("Invalid Email or Password", "auth")
@@ -1236,6 +1252,8 @@ func (controller *MainController) SignInPost(c web.C, r *http.Request) (string, 
 		return controller.SignIn(c, r)
 	}
 
+	// If pool is closed and user has not yet provided a pubkey address, do not
+	// allow login.
 	if controller.closePool {
 		if len(user.UserPubKeyAddr) == 0 {
 			session.AddFlash(controller.closePoolMsg, "auth")
@@ -1247,10 +1265,12 @@ func (controller *MainController) SignInPost(c web.C, r *http.Request) (string, 
 
 	session.Values["UserId"] = user.Id
 
+	// Go to Address page if multisig script not yet set up.
 	if user.MultiSigAddress == "" {
 		return "/address", http.StatusSeeOther
 	}
 
+	// Go to Tickets page if user already set up.
 	return "/tickets", http.StatusSeeOther
 }
 
@@ -1258,6 +1278,8 @@ func (controller *MainController) SignInPost(c web.C, r *http.Request) (string, 
 func (controller *MainController) SignUp(c web.C, r *http.Request) (string, int) {
 	t := controller.GetTemplate(c)
 	session := controller.GetSession(c)
+
+	// Tell main.html what route is being rendered
 	c.Env["IsSignUp"] = true
 	if controller.smtpHost == "" {
 		c.Env["SMTPDisabled"] = true
@@ -1271,7 +1293,7 @@ func (controller *MainController) SignUp(c web.C, r *http.Request) (string, int)
 	c.Env["FlashSuccess"] = session.Flashes("signupSuccess")
 	c.Env["RecaptchaSiteKey"] = controller.recaptchaSiteKey
 
-	var widgets = controller.Parse(t, "auth/signup", c.Env)
+	widgets := controller.Parse(t, "auth/signup", c.Env)
 
 	c.Env["Title"] = "Decred Stake Pool - Sign Up"
 	c.Env["Content"] = template.HTML(widgets)
@@ -1287,7 +1309,7 @@ func (controller *MainController) SignUpPost(c web.C, r *http.Request) (string, 
 		return "/error?r=/signup", http.StatusSeeOther
 	}
 
-	re := recaptcha.R{
+	recap := recaptcha.R{
 		Secret: controller.recaptchaSecret,
 	}
 
@@ -1311,10 +1333,10 @@ func (controller *MainController) SignUpPost(c web.C, r *http.Request) (string, 
 		return controller.SignUp(c, r)
 	}
 
-	isValid := re.Verify(*r)
+	isValid := recap.Verify(*r)
 	if !isValid {
 		session.AddFlash("Recaptcha error", "signupError")
-		log.Errorf("Recaptcha error %v", re.LastError())
+		log.Errorf("Recaptcha error %v", recap.LastError())
 		return controller.SignUp(c, r)
 	}
 
@@ -1395,7 +1417,7 @@ func (controller *MainController) Stats(c web.C, r *http.Request) (string, int) 
 	c.Env["UserCount"] = userCount
 	c.Env["UserCountActive"] = userCountActive
 
-	var widgets = controller.Parse(t, "stats", c.Env)
+	widgets := controller.Parse(t, "stats", c.Env)
 	c.Env["Content"] = template.HTML(widgets)
 
 	return controller.Parse(t, "main", c.Env), http.StatusOK
@@ -1482,7 +1504,7 @@ func (controller *MainController) Status(c web.C, r *http.Request) (string, int)
 	c.Env["WalletInfo"] = walletPageInfo
 	c.Env["RPCStatus"] = rpcstatus
 
-	var widgets = controller.Parse(t, "status", c.Env)
+	widgets := controller.Parse(t, "status", c.Env)
 	c.Env["Content"] = template.HTML(widgets)
 
 	if controller.RPCIsStopped() {
@@ -1536,16 +1558,18 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 		log.Info("Multisigaddress empty")
 	}
 
-	ms, err := dcrutil.DecodeAddress(user.MultiSigAddress, controller.params)
+	// Get P2SH Address
+	multisig, err := dcrutil.DecodeAddress(user.MultiSigAddress, controller.params)
 	if err != nil {
 		c.Env["Error"] = "Invalid multisig data in database"
 		log.Infof("Invalid address %v in database: %v", user.MultiSigAddress, err)
 	}
 
-	var widgets = controller.Parse(t, "tickets", c.Env)
+	widgets := controller.Parse(t, "tickets", c.Env)
 
+	// TODO: how could this happen?
 	if err != nil {
-		log.Info("err is set")
+		log.Info(err)
 		c.Env["Content"] = template.HTML(widgets)
 		widgets = controller.Parse(t, "tickets", c.Env)
 		return controller.Parse(t, "main", c.Env), http.StatusOK
@@ -1555,20 +1579,24 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 		return "/error", http.StatusSeeOther
 	}
 
-	spui := new(dcrjson.StakePoolUserInfoResult)
-	spui, err = controller.rpcServers.StakePoolUserInfo(ms)
+	// spui := new(dcrjson.StakePoolUserInfoResult)
+	spui, err := controller.rpcServers.StakePoolUserInfo(multisig)
 	if err != nil {
 		// Log the error, but do not return. Consider reporting
 		// the error to the user on the page. A blank tickets
 		// page will be displayed in the meantime.
 		log.Infof("RPC StakePoolUserInfo failed: %v", err)
+		session.AddFlash("Unable to retreive stake pool user info.", "tickets")
 	}
 
+	// If the user has tickets, get their info
 	if spui != nil && len(spui.Tickets) > 0 {
+		// Retrieve ticket hashes
 		var tickethashes []*chainhash.Hash
 
 		for _, ticket := range spui.Tickets {
 			th, err := chainhash.NewHashFromStr(ticket.Ticket)
+			// This may not be a fatal error. TODO: Inform user to try again.
 			if err != nil {
 				log.Infof("NewHashFromStr failed for %v", ticket)
 				return "/error?r=/tickets", http.StatusSeeOther
@@ -1584,20 +1612,20 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 		}
 
 		for idx, ticket := range spui.Tickets {
-			switch {
-			case ticket.Status == "live":
+			switch ticket.Status {
+			case "live":
 				ticketInfoLive[idx] = TicketInfoLive{
 					Ticket:       ticket.Ticket,
 					TicketHeight: ticket.TicketHeight,
 					VoteBits:     gtvb.VoteBitsList[idx].VoteBits,
 				}
-			case ticket.Status == "missed":
+			case "missed":
 				ticketInfoMissed[idx] = TicketInfoHistoric{
 					Ticket:        ticket.Ticket,
 					SpentByHeight: ticket.SpentByHeight,
 					TicketHeight:  ticket.TicketHeight,
 				}
-			case ticket.Status == "voted":
+			case "voted":
 				ticketInfoVoted[idx] = TicketInfoHistoric{
 					Ticket:        ticket.Ticket,
 					SpentBy:       ticket.SpentBy,
@@ -1618,6 +1646,7 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	c.Env["TicketsVoted"] = ticketInfoVoted
 	widgets = controller.Parse(t, "tickets", c.Env)
 	c.Env["Content"] = template.HTML(widgets)
+	c.Env["Flash"] = session.Flashes("tickets")
 
 	return controller.Parse(t, "main", c.Env), http.StatusOK
 }
@@ -1640,16 +1669,25 @@ func (controller *MainController) TicketsPost(c web.C, r *http.Request) (string,
 		}
 	}
 
+	// Look up user, and try very hard to avoid a panic
 	session := controller.GetSession(c)
 	dbMap := controller.GetDbMap(c)
-	user := models.GetUserById(dbMap, session.Values["UserId"].(int64))
+	id, ok := session.Values["UserId"].(int64)
+	if !ok {
+		log.Error("No valid UserID")
+	}
+
+	user := models.GetUserById(dbMap, id)
+	if user==nil {
+		log.Error("Unable to find user with ID", id)
+	}
 
 	if user.MultiSigAddress == "" {
 		log.Info("Multisigaddress empty")
 		return "/error?r=/tickets", http.StatusSeeOther
 	}
 
-	ms, err := dcrutil.DecodeAddress(user.MultiSigAddress, controller.params)
+	multisig, err := dcrutil.DecodeAddress(user.MultiSigAddress, controller.params)
 	if err != nil {
 		log.Infof("Invalid address %v in database: %v", user.MultiSigAddress, err)
 		return "/error?r=/tickets", http.StatusSeeOther
@@ -1658,11 +1696,14 @@ func (controller *MainController) TicketsPost(c web.C, r *http.Request) (string,
 	if controller.RPCIsStopped() {
 		return "/error", http.StatusSeeOther
 	}
-	spui, err := controller.rpcServers.StakePoolUserInfo(ms)
+	spui, err := controller.rpcServers.StakePoolUserInfo(multisig)
 	if err != nil {
 		log.Infof("RPC StakePoolUserInfo failed: %v", err)
 		return "/error?r=/tickets", http.StatusSeeOther
 	}
+
+	outPath := "/tickets"
+	status := http.StatusOK
 
 	for _, ticket := range spui.Tickets {
 		if controller.RPCIsStopped() {
@@ -1671,7 +1712,9 @@ func (controller *MainController) TicketsPost(c web.C, r *http.Request) (string,
 		th, err := chainhash.NewHashFromStr(ticket.Ticket)
 		if err != nil {
 			log.Infof("NewHashFromStr failed for %v", ticket)
-			return "/error?r=/tickets", http.StatusSeeOther
+			outPath = "/error?r=/tickets"
+			status = http.StatusSeeOther
+			continue
 		}
 		err = controller.rpcServers.SetTicketVoteBits(th, voteBits)
 		if err != nil {
@@ -1683,7 +1726,7 @@ func (controller *MainController) TicketsPost(c web.C, r *http.Request) (string,
 		}
 	}
 
-	return "/tickets", http.StatusSeeOther
+	return outPath, status
 }
 
 // Logout the user.
