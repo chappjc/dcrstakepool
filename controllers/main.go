@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -41,8 +42,10 @@ const signupEmailTemplate = "A request for an account for __URL__\r\n" +
 	"to verify your email address and finalize registration.\r\n\n"
 const signupEmailSubject = "Stake pool email verification"
 
-// MainController
+// MainController is the wallet RPC controller type.  Its methods include the
+// route handlers.
 type MainController struct {
+	// embed type for c.Env[""] context and ExecuteTemplate helpers
 	system.Controller
 
 	adminIPs         []string
@@ -578,7 +581,7 @@ func (controller *MainController) Address(c web.C, r *http.Request) (string, int
 	c.Env["Network"] = controller.params.Name
 
 	c.Env["Flash"] = session.Flashes("address")
-	var widgets = controller.Parse(t, "address", c.Env)
+	widgets := controller.Parse(t, "address", c.Env)
 
 	c.Env["Title"] = "Decred Stake Pool - Address"
 	c.Env["Content"] = template.HTML(widgets)
@@ -705,7 +708,7 @@ func (controller *MainController) AddressPost(c web.C, r *http.Request) (string,
 	}
 
 	// Update the user's DB entry with multisig, user and pool pubkey
-	// addresses, and the fee address 
+	// addresses, and the fee address
 	models.UpdateUserByID(dbMap, uid64, createMultiSig.Address,
 		createMultiSig.RedeemScript, poolPubKeyAddr, userPubKeyAddr,
 		userFeeAddr.EncodeAddress(), bestBlockHeight)
@@ -857,7 +860,7 @@ func (controller *MainController) Index(c web.C, r *http.Request) (string, int) 
 	t := controller.GetTemplate(c)
 	//t := c.Env["Template"].(*template.Template)
 
-	// execute the named template with data in c.Env 
+	// execute the named template with data in c.Env
 	widgets := helpers.Parse(t, "home", c.Env)
 
 	// With that kind of flags template can "figure out" what route is being rendered
@@ -1538,6 +1541,12 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	ticketInfoMissed := map[int]TicketInfoHistoric{}
 	ticketInfoVoted := map[int]TicketInfoHistoric{}
 
+	responseHeaderMap := make(map[string]string)
+	c.Env["ResponseHeaderMap"] = responseHeaderMap
+
+	// testing, testing
+	responseHeaderMap["X-1337h4x0r"] = "chappjc"
+
 	t := controller.GetTemplate(c)
 	session := controller.GetSession(c)
 
@@ -1558,6 +1567,10 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 		log.Info("Multisigaddress empty")
 	}
 
+	if controller.RPCIsStopped() {
+		return "/error", http.StatusSeeOther
+	}
+
 	// Get P2SH Address
 	multisig, err := dcrutil.DecodeAddress(user.MultiSigAddress, controller.params)
 	if err != nil {
@@ -1565,28 +1578,53 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 		log.Infof("Invalid address %v in database: %v", user.MultiSigAddress, err)
 	}
 
+	// Attempt a "TryLock" so the page won't block
+	w := controller.rpcServers
+
+	// select {
+	// case <-w.ticketTryLock:
+	// 	w.ticketTryLock <- nil
+	// 	responseHeaderMap["Retry-After"] = "60"
+	// 	c.Env["Content"] = template.HTML("Ticket data resyncing.  Please try again later.")
+	// 	return controller.Parse(t, "main", c.Env), http.StatusProcessing
+	// default:
+	// }
+
+	if atomic.LoadInt32(&w.ticketDataBlocker) != 0 {
+		// with HTTP 102 we can specify an estimated time
+		responseHeaderMap["Retry-After"] = "60"
+		// Render page with messgae to try again later
+		//c.Env["Content"] = template.HTML("Ticket data resyncing.  Please try again later.")
+		c.Env["Content"] = template.HTML(controller.Parse(t, "tickets", c.Env))
+		session.AddFlash("Ticket data resyncing.  Please try again later.", "tickets")
+		c.Env["Flash"] = session.Flashes("tickets")
+		return controller.Parse(t, "main", c.Env), http.StatusProcessing
+	}
+
+	// Vote bits sync is not running, but we also don't want a sync process
+	// starting. Note that the sync process locks this mutex before setting the
+	// atomic, so this shouldn't block.
+	w.ticketDataLock.RLock()
+	defer w.ticketDataLock.RUnlock()
+
 	widgets := controller.Parse(t, "tickets", c.Env)
 
 	// TODO: how could this happen?
 	if err != nil {
 		log.Info(err)
-		c.Env["Content"] = template.HTML(widgets)
 		widgets = controller.Parse(t, "tickets", c.Env)
+		c.Env["Content"] = template.HTML(widgets)
 		return controller.Parse(t, "main", c.Env), http.StatusOK
 	}
 
-	if controller.RPCIsStopped() {
-		return "/error", http.StatusSeeOther
-	}
-
 	// spui := new(dcrjson.StakePoolUserInfoResult)
-	spui, err := controller.rpcServers.StakePoolUserInfo(multisig)
+	spui, err := w.StakePoolUserInfo(multisig)
 	if err != nil {
-		// Log the error, but do not return. Consider reporting
-		// the error to the user on the page. A blank tickets
-		// page will be displayed in the meantime.
+		// Render page with messgae to try again later
 		log.Infof("RPC StakePoolUserInfo failed: %v", err)
 		session.AddFlash("Unable to retreive stake pool user info.", "tickets")
+		c.Env["Flash"] = session.Flashes("tickets")
+		return controller.Parse(t, "main", c.Env), http.StatusInternalServerError
 	}
 
 	// If the user has tickets, get their info
@@ -1604,11 +1642,33 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 			tickethashes = append(tickethashes, th)
 		}
 
-		// TODO: only get votebits for live tickets.
-		gtvb, err := controller.rpcServers.GetTicketsVoteBits(tickethashes)
+		// Only get votebits for live tickets
+		liveTicketHashes, err := w.GetLiveUserTickets(multisig)
 		if err != nil {
+			return "/error?r=/tickets", http.StatusSeeOther
+		}
+
+		gtvb, err := w.GetTicketsVoteBits(liveTicketHashes)
+		if err != nil {
+			if err.Error() == "non equivalent votebits returned" {
+				// Launch a goroutine to repair these tickets vote bits
+				go w.SyncTicketsVoteBits(tickethashes)
+				responseHeaderMap["Retry-After"] = "60"
+				// Render page with messgae to try again later
+				c.Env["Content"] = template.HTML(controller.Parse(t, "tickets", c.Env))
+				session.AddFlash("Ticket data resyncing.  Please try again later.", "tickets")
+				c.Env["Flash"] = session.Flashes("tickets")
+				// Return with a 503 error indicating when to retry
+				return controller.Parse(t, "main", c.Env), http.StatusServiceUnavailable
+			}
+
 			log.Infof("GetTicketsVoteBits failed %v", err)
 			return "/error?r=/tickets", http.StatusSeeOther
+		}
+
+		voteBitMap := make(map[string]uint16)
+		for i := range liveTicketHashes {
+			voteBitMap[liveTicketHashes[i].String()] = gtvb.VoteBitsList[i].VoteBits
 		}
 
 		for idx, ticket := range spui.Tickets {
@@ -1617,7 +1677,7 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 				ticketInfoLive[idx] = TicketInfoLive{
 					Ticket:       ticket.Ticket,
 					TicketHeight: ticket.TicketHeight,
-					VoteBits:     gtvb.VoteBitsList[idx].VoteBits,
+					VoteBits:     voteBitMap[ticket.Ticket], //gtvbAll.VoteBitsList[idx].VoteBits,
 				}
 			case "missed":
 				ticketInfoMissed[idx] = TicketInfoHistoric{
@@ -1645,6 +1705,7 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	c.Env["TicketsMissed"] = ticketInfoMissed
 	c.Env["TicketsVoted"] = ticketInfoVoted
 	widgets = controller.Parse(t, "tickets", c.Env)
+
 	c.Env["Content"] = template.HTML(widgets)
 	c.Env["Flash"] = session.Flashes("tickets")
 
@@ -1678,7 +1739,7 @@ func (controller *MainController) TicketsPost(c web.C, r *http.Request) (string,
 	}
 
 	user := models.GetUserById(dbMap, id)
-	if user==nil {
+	if user == nil {
 		log.Error("Unable to find user with ID", id)
 	}
 
