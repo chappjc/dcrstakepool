@@ -1452,7 +1452,7 @@ func (w *walletSvrManager) SyncVoteBits() error {
 
 	// Check live tickets
 	// legacyrpc.getTickets excludes spent tickets
-	ticketHashes, err := w.servers[0].GetTickets(false)
+	ticketHashes, err := w.servers[0].GetTickets(true)
 	if err != nil {
 		return err
 	}
@@ -1473,13 +1473,13 @@ func (w *walletSvrManager) SyncVoteBits() error {
 			continue
 		}
 
-		// ticketHashes, err = cl.GetTickets(false)
+		// ticketHashes, err = cl.GetTickets(true)
 		gsi, err = cl.GetStakeInfo()
 		if err != nil {
 			return err
 		}
 
-		if i > 0 && numLiveTickets != int(gsi.Live) {
+		if numLiveTickets != int(gsi.Live+gsi.Immature) {
 			log.Infof("Non-equivalent number of tickets on servers %v, %v "+
 				" (%v, %v)", 0, i, numLiveTickets, gsi.Live)
 			return fmt.Errorf("non equivalent num elements returned")
@@ -1492,6 +1492,10 @@ func (w *walletSvrManager) SyncVoteBits() error {
 // SyncTicketsVoteBits ensures that the wallet servers are all in sync with each
 // other in terms of vote bits of the given tickets.  First wallet rules.
 func (w *walletSvrManager) SyncTicketsVoteBits(tickets []*chainhash.Hash) error {
+	if len(tickets) == 0 {
+		return nil
+	}
+
 	// Check for connectivity and if unlocked.
 	err := w.CheckServers()
 	if err != nil {
@@ -1508,13 +1512,9 @@ func (w *walletSvrManager) SyncTicketsVoteBits(tickets []*chainhash.Hash) error 
 	}
 	defer atomic.StoreInt32(&w.ticketDataBlocker, 0)
 
-	if len(tickets) == 0 {
-		return nil
-	}
-
+	// Go through each server, get ticket vote bits
 	votebitsPerServer := make([]map[chainhash.Hash]uint16, w.serversLen)
 
-	// Go through each server, get ticket vote bits
 	for i, cl := range w.servers {
 		votebits, err := cl.GetTicketsVoteBits(tickets)
 		if err != nil {
@@ -1530,6 +1530,7 @@ func (w *walletSvrManager) SyncTicketsVoteBits(tickets []*chainhash.Hash) error 
 	}
 
 	// Synchronize, using first server's bits if different
+	// NOTE: This does not check for missing tickets.
 	masterVotebitsMap := votebitsPerServer[0]
 	for i, votebitsMap := range votebitsPerServer {
 		if i == 0 {
@@ -1562,7 +1563,7 @@ func (w *walletSvrManager) SyncUserVoteBits(userMultiSigAddress dcrutil.Address)
 	}
 
 	// Get all live tickets for user
-	ticketHashes, err := w.GetLiveUserTickets(userMultiSigAddress)
+	ticketHashes, err := w.GetUnspentUserTickets(userMultiSigAddress)
 	if err != nil {
 		return err
 	}
@@ -1570,16 +1571,21 @@ func (w *walletSvrManager) SyncUserVoteBits(userMultiSigAddress dcrutil.Address)
 	return w.SyncTicketsVoteBits(ticketHashes)
 }
 
-func (w *walletSvrManager) GetLiveUserTickets(userMultiSigAddress dcrutil.Address) ([]*chainhash.Hash, error) {
+// GetUnspentUserTickets gets live and immature tickets for a stakepool user
+func (w *walletSvrManager) GetUnspentUserTickets(userMultiSigAddress dcrutil.Address) ([]*chainhash.Hash, error) {
 	// live tickets only
 	var tickethashes []*chainhash.Hash
 
+	// TicketsForAddress returns all tickets, not just live, when wallet is
+	// queried rather than just the node. With StakePoolUserInfo, "live" status
+	// includes immature, but not spent.
 	spui, err := w.StakePoolUserInfo(userMultiSigAddress)
 	if err != nil {
 		return tickethashes, err
 	}
 
 	for _, ticket := range spui.Tickets {
+		// "live" includes immature
 		if ticket.Status == "live" {
 			th, err := chainhash.NewHashFromStr(ticket.Ticket)
 			if err != nil {
