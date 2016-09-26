@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync/atomic"
+	"time"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -1595,10 +1596,10 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 		responseHeaderMap["Retry-After"] = "60"
 		// Render page with messgae to try again later
 		//c.Env["Content"] = template.HTML("Ticket data resyncing.  Please try again later.")
-		c.Env["Content"] = template.HTML(controller.Parse(t, "tickets", c.Env))
 		session.AddFlash("Ticket data resyncing.  Please try again later.", "tickets")
 		c.Env["Flash"] = session.Flashes("tickets")
-		return controller.Parse(t, "main", c.Env), http.StatusProcessing
+		c.Env["Content"] = template.HTML(controller.Parse(t, "tickets", c.Env))
+		return controller.Parse(t, "main", c.Env), http.StatusOK
 	}
 
 	// Vote bits sync is not running, but we also don't want a sync process
@@ -1622,8 +1623,8 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	if err != nil {
 		// Render page with messgae to try again later
 		log.Infof("RPC StakePoolUserInfo failed: %v", err)
-		session.AddFlash("Unable to retreive stake pool user info.", "tickets")
-		c.Env["Flash"] = session.Flashes("tickets")
+		session.AddFlash("Unable to retreive stake pool user info.", "main")
+		c.Env["Flash"] = session.Flashes("main")
 		return controller.Parse(t, "main", c.Env), http.StatusInternalServerError
 	}
 
@@ -1655,9 +1656,9 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 				go w.SyncTicketsVoteBits(tickethashes)
 				responseHeaderMap["Retry-After"] = "60"
 				// Render page with messgae to try again later
-				c.Env["Content"] = template.HTML(controller.Parse(t, "tickets", c.Env))
 				session.AddFlash("Ticket data resyncing.  Please try again later.", "tickets")
 				c.Env["Flash"] = session.Flashes("tickets")
+				c.Env["Content"] = template.HTML(controller.Parse(t, "tickets", c.Env))
 				// Return with a 503 error indicating when to retry
 				return controller.Parse(t, "main", c.Env), http.StatusServiceUnavailable
 			}
@@ -1714,6 +1715,13 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 
 // TicketsPost form submit route.
 func (controller *MainController) TicketsPost(c web.C, r *http.Request) (string, int) {
+	w := controller.rpcServers
+
+	// If already processing let /ticktets handle this
+	if atomic.LoadInt32(&w.ticketDataBlocker) != 0 {
+		return "/tickets", http.StatusSeeOther
+	}
+
 	chooseallow := r.FormValue("chooseallow")
 	var voteBits = uint16(0)
 
@@ -1757,35 +1765,52 @@ func (controller *MainController) TicketsPost(c web.C, r *http.Request) (string,
 	if controller.RPCIsStopped() {
 		return "/error", http.StatusSeeOther
 	}
-	spui, err := controller.rpcServers.StakePoolUserInfo(multisig)
+	spui, err := w.StakePoolUserInfo(multisig)
 	if err != nil {
 		log.Infof("RPC StakePoolUserInfo failed: %v", err)
 		return "/error?r=/tickets", http.StatusSeeOther
 	}
 
 	outPath := "/tickets"
-	status := http.StatusOK
+	status := http.StatusSeeOther
 
-	for _, ticket := range spui.Tickets {
-		if controller.RPCIsStopped() {
-			return "/error", http.StatusSeeOther
+	// Set this off in a goroutine
+	go func() (string, int) {
+		// write lock
+		w.ticketDataLock.Lock()
+		defer w.ticketDataLock.Unlock()
+
+		if !atomic.CompareAndSwapInt32(&w.ticketDataBlocker, 0, 1) {
+			return outPath, status
 		}
-		th, err := chainhash.NewHashFromStr(ticket.Ticket)
-		if err != nil {
-			log.Infof("NewHashFromStr failed for %v", ticket)
-			outPath = "/error?r=/tickets"
-			status = http.StatusSeeOther
-			continue
-		}
-		err = controller.rpcServers.SetTicketVoteBits(th, voteBits)
-		if err != nil {
-			if err == ErrSetVoteBitsCoolDown {
-				return "/error?r=/tickets&rl=1", http.StatusSeeOther
+		defer atomic.StoreInt32(&w.ticketDataBlocker, 0)
+
+		for _, ticket := range spui.Tickets {
+			if controller.RPCIsStopped() {
+				return "/error", http.StatusSeeOther
 			}
-			controller.handlePotentialFatalError("SetTicketVoteBits", err)
-			return "/error?r=/tickets", http.StatusSeeOther
+			th, err := chainhash.NewHashFromStr(ticket.Ticket)
+			if err != nil {
+				log.Infof("NewHashFromStr failed for %v", ticket)
+				outPath = "/error?r=/tickets"
+				status = http.StatusSeeOther
+				continue
+			}
+			err = controller.rpcServers.SetTicketVoteBits(th, voteBits)
+			if err != nil {
+				if err == ErrSetVoteBitsCoolDown {
+					return "/error?r=/tickets&rl=1", http.StatusSeeOther
+				}
+				controller.handlePotentialFatalError("SetTicketVoteBits", err)
+				return "/error?r=/tickets", http.StatusSeeOther
+			}
 		}
-	}
+		return outPath, status
+	}()
+
+	// Like a timeout, give the sync some time to process, otherwise /tickets
+	// will show a message that it is still syncing.
+	time.Sleep(3 * time.Second)
 
 	return outPath, status
 }
