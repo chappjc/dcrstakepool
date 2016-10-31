@@ -11,13 +11,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/decred/dcrd/blockchain/stake"
 	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/dcrjson"
 	"github.com/decred/dcrrpcclient"
 	"github.com/decred/dcrstakepool/models"
 	"github.com/decred/dcrutil"
 	"github.com/decred/dcrwallet/waddrmgr"
-	"github.com/decred/dcrd/blockchain/stake"
 )
 
 // functionName
@@ -1282,9 +1282,9 @@ func (w *walletSvrManager) SetTicketsVoteBits(hashes []*chainhash.Hash, votesBit
 
 	reply := make(chan setTicketsVoteBitsResponse)
 	w.msgChan <- setTicketsVoteBitsMsg{
-		hashes:     hashes,
+		hashes:    hashes,
 		votesBits: votesBits,
-		reply:    reply,
+		reply:     reply,
 	}
 
 	// If the set was successful, reset the timer.
@@ -1546,7 +1546,7 @@ func (w *walletSvrManager) SyncVoteBits() error {
 	ticketHashesMined := getMinedTickets(w.servers[0], ticketHashes)
 	numLiveTickets := len(ticketHashesMined)
 	log.Infof("Excluding %d unmined tickets in votebits sync.",
-		len(ticketHashes) - numLiveTickets)
+		len(ticketHashes)-numLiveTickets)
 
 	// gsi, err := w.servers[0].GetStakeInfo()
 	// if err != nil {
@@ -1558,7 +1558,7 @@ func (w *walletSvrManager) SyncVoteBits() error {
 	// }
 
 	// Check number of tickets
-	
+
 	for i, cl := range w.servers {
 		if i == 0 {
 			continue
@@ -2001,31 +2001,6 @@ func newWalletSvrManager(walletHosts []string, walletCerts []string,
 		msgChan:                make(chan interface{}, 500),
 		quit:                   make(chan struct{}),
 		minServers:             minServers,
-	}
-
-	// Sync address index and redeemscripts
-
-	// TODO: Wait for wallets to sync, or schedule the vote bits sync somehow.
-	// For now, just skip full vote bits sync in favor of on-demand user's vote
-	// bits sync if the wallets are busy at this point.
-
-	// Allow sync to get going before attempting vote bits sync.
-	time.Sleep(2 * time.Second)
-
-	// Look for that -4 message from wallet that says: "the wallet is
-	// currently syncing to the best block, please try again later"
-	err = wsm.CheckWalletsReady()
-	if err != nil /*strings.Contains(err.Error(), "try again later")*/ {
-		// If importscript is running, it will take a while.
-		log.Errorf("Wallets are syncing. Unable to initiate votebits sync: %v",
-			err)
-	} else {
-		// Sync vote bits for all tickets owned by the wallet
-		err = wsm.SyncVoteBits()
-		if err != nil {
-			log.Error(err)
-			return nil, err
-		}
 	}
 
 	return &wsm, nil
