@@ -1336,7 +1336,7 @@ func (controller *MainController) SignUpPost(c web.C, r *http.Request) (string, 
 		return "/error?r=/signup", http.StatusSeeOther
 	}
 
-	recap := recaptcha.R{
+	re := recaptcha.R{
 		Secret: controller.recaptchaSecret,
 	}
 
@@ -1360,10 +1360,10 @@ func (controller *MainController) SignUpPost(c web.C, r *http.Request) (string, 
 		return controller.SignUp(c, r)
 	}
 
-	isValid := recap.Verify(*r)
+	isValid := re.Verify(*r)
 	if !isValid {
 		session.AddFlash("Recaptcha error", "signupError")
-		log.Errorf("Recaptcha error %v", recap.LastError())
+		log.Errorf("Recaptcha error %v", re.LastError())
 		return controller.SignUp(c, r)
 	}
 

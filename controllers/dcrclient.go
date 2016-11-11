@@ -53,7 +53,7 @@ var (
 	// allowTimerSetVoteBits is the cooldown timer between set vote
 	// bits calls for some given ticket. After this time, the vote
 	// bits may be set again.
-	allowTimerSetVoteBits = 20 * time.Second
+	allowTimerSetVoteBits = 30 * time.Second
 
 	// defaultAccountName is the account name for the default wallet
 	// account as a string.

@@ -32,7 +32,7 @@ const (
 	defaultDBPort           = 3306
 	defaultDBUser           = "stakepool"
 	defaultPoolEmail        = "admin@example.com"
-	defaultPoolFees         = 5
+	defaultPoolFees         = 7.5
 	defaultPoolLink         = "https://forum.decred.org/threads/rfp-6-setup-and-operate-10-stake-pools.1361/"
 	defaultRecaptchaSecret  = "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe"
 	defaultRecaptchaSitekey = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
