@@ -1262,7 +1262,7 @@ func (w *walletSvrManager) SetTicketVoteBits(hash *chainhash.Hash, voteBits uint
 // encounters a failure, it should be considered fatal.
 func (w *walletSvrManager) SetTicketsVoteBits(hashes []*chainhash.Hash, votesBits []stake.VoteBits) error {
 	// Assert that all servers are online.
-	err := w.connected()
+	_, err := w.connected()
 	if err != nil {
 		return connectionError(err)
 	}
@@ -1975,7 +1975,7 @@ func connectWalletRPC(walletHost string, walletCert string, walletUser string, w
 // newWalletSvrManager returns a new decred wallet server manager.
 // Use Start to begin processing asynchronous block and inv updates.
 func newWalletSvrManager(walletHosts []string, walletCerts []string,
-	walletUsers []string, walletPasswords []string) (*walletSvrManager, error) {
+	walletUsers []string, walletPasswords []string, minServers int) (*walletSvrManager, error) {
 
 	var err error
 	localServers := make([]*dcrrpcclient.Client, len(walletHosts), len(walletHosts))

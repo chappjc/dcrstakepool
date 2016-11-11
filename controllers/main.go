@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/decred/dcrd/chaincfg"
-	// "github.com/decred/dcrd/dcrjson"
+	"github.com/decred/dcrd/dcrjson"
 	"github.com/decred/dcrutil"
 	"github.com/decred/dcrutil/hdkeychain"
 	"github.com/decred/dcrwallet/waddrmgr"
