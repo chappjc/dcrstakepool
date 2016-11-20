@@ -33,12 +33,12 @@
 		<tr><td><span style="font-size: larger;">Expired:</span></td><td><span id="Expired">{{ .StakeInfo.Expired }}</span></td></tr>
 		{{end}}
 		<tr><td><span style="font-size: larger;">Revoked:</span></td><td><span id="Revoked">{{ .StakeInfo.Revoked }}</span></td></tr>
-		<tr><td><span style="font-size: larger;">ProportionMissed:</span></td><td><span id="ProportionMissed">{{ .StakeInfo.ProportionMissed }}</span></td></tr>
+		<tr><td><span style="font-size: larger;">ProportionMissed:</span></td><td><span id="ProportionMissed">{{ printf "%.4f" .StakeInfo.ProportionMissed }}</span></td></tr>
 		<tr><td><span style="font-size: larger;">Pool Size:</span></td><td><span id="PoolSize">{{ .StakeInfo.PoolSize }}</span></td></tr>
 		<tr><td><span style="font-size: larger;">AllMempoolTix:</span></td><td><span id="AllMempoolTix">{{ .StakeInfo.AllMempoolTix }}</span></td></tr>
 		<!-- disabled due to https://github.com/decred/dcrwallet/issues/251
 			<tr><td><span style="font-size: larger;">OwnMempoolTix:</span></td><td><span id="OwnMempoolTix">{{ .StakeInfo.OwnMempoolTix }}</span></td></tr>-->
-		<tr><td><span style="font-size: larger;">ProportionLive:</span></td><td><span id="ProportionLive">{{ .StakeInfo.ProportionLive }}</span></td></tr>
+		<tr><td><span style="font-size: larger;">ProportionLive:</span></td><td><span id="ProportionLive">{{ printf "%.4f" .StakeInfo.ProportionLive }}</span></td></tr>
 		<tr><td><span style="font-size: larger;">Difficulty:</span></td><td><span id="Difficulty">{{ .StakeInfo.Difficulty }}</span></td></tr>
 		<tr><td><span style="font-size: larger;">TotalSubsidy:</span></td><td><span id="TotalSubsidy">{{ .StakeInfo.TotalSubsidy }}</span></td></tr>
 		<tr><td><span style="font-size: larger;">Total User Count:</span></td><td><span id="UserCount">{{ .UserCount }}</span></td></tr>

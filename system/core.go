@@ -1,15 +1,15 @@
 package system
 
 import (
+	"crypto/sha256"
 	"html/template"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
-
-	"crypto/sha256"
 
 	"github.com/decred/dcrstakepool/models"
 	"github.com/golang/glog"
@@ -67,6 +67,27 @@ func (application *Application) Init(filename *string) {
 	application.Config = config
 }
 
+var funcMap = template.FuncMap{
+	"minus": minus,
+	"plus":  plus,
+	"round": round,
+}
+
+func minus(a, b int64) string {
+	return strconv.FormatInt(a-b, 10)
+}
+
+func plus(a, b int64) string {
+	return strconv.FormatInt(a+b, 10)
+}
+
+func round(val float64) int {
+	if val < 0 {
+		return int(val - 0.5)
+	}
+	return int(val + 0.5)
+}
+
 func (application *Application) LoadTemplates() error {
 	var templates []string
 
@@ -78,12 +99,12 @@ func (application *Application) LoadTemplates() error {
 	}
 
 	err := filepath.Walk(application.Config.Get("general.template_path").(string), fn)
-
 	if err != nil {
 		return err
 	}
 
-	application.Template = template.Must(template.ParseFiles(templates...))
+	t := template.New("dcrstakepool").Funcs(funcMap)
+	application.Template = template.Must(t.ParseFiles(templates...))
 	return nil
 }
 
@@ -91,6 +112,13 @@ func (application *Application) Close() {
 	glog.Info("Bye!")
 }
 
+// Route returns a Goji web.HandlerType (a route) for the method named "route"
+// of the specified controller instance. The returned route handler sets the
+// default content type to "text/html", calls the specified controller method,
+// saves the session used in the request, retrieves any header key-value pairs
+// stored in the c.Env["ResponseHeaderMap"] and sets them in the response
+// header, and writes the response code (and body unless 500 code) to the
+// response writer.
 func (application *Application) Route(controller interface{}, route string) interface{} {
 	fn := func(c web.C, w http.ResponseWriter, r *http.Request) {
 		c.Env["Content-Type"] = "text/html"
