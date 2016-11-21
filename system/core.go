@@ -35,46 +35,43 @@ type Application struct {
 	Logger         btclog.Logger
 }
 
-func NewApplication(filename *string, logger btclog.Logger) *Application {
+// NewApplication constructs a new Application from the settings in configFile
+// and using the specified logger.
+func NewApplication(configFile *string, logger btclog.Logger) *Application {
 	app := &Application{Logger: logger}
 
-	app.Init(filename)
-
-	return app
-}
-
-func (application *Application) Init(filename *string) {
-
-	config, err := toml.LoadFile(*filename)
+	config, err := toml.LoadFile(*configFile)
 	if err != nil {
-		application.Logger.Critical("TOML load failed: %s\n", err)
+		app.Logger.Critical("TOML load failed: %s\n", err)
 		os.Exit(1)
 	}
 
 	hash := sha256.New()
 	io.WriteString(hash, config.Get("cookie.mac_secret").(string))
-	application.Store = sessions.NewCookieStore(hash.Sum(nil))
-	application.Store.Options = &sessions.Options{
+	app.Store = sessions.NewCookieStore(hash.Sum(nil))
+	app.Store.Options = &sessions.Options{
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   config.Get("cookie.secure").(bool),
 	}
 	dbConfig := config.Get("database").(*toml.TomlTree)
-	application.DbMap = models.GetDbMap(
+	app.DbMap = models.GetDbMap(
 		dbConfig.Get("user").(string),
 		dbConfig.Get("password").(string),
 		dbConfig.Get("hostname").(string),
 		dbConfig.Get("port").(string),
 		dbConfig.Get("database").(string))
 
-	application.CsrfProtection = &CsrfProtection{
+	app.CsrfProtection = &CsrfProtection{
 		Key:    config.Get("csrf.key").(string),
 		Cookie: config.Get("csrf.cookie").(string),
 		Header: config.Get("csrf.header").(string),
 		Secure: config.Get("cookie.secure").(bool),
 	}
 
-	application.Config = config
+	app.Config = config
+
+	return app
 }
 
 var funcMap = template.FuncMap{

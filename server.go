@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/golang/glog"
 	"github.com/gorilla/context"
 
 	"github.com/decred/dcrrpcclient"
@@ -37,7 +36,6 @@ func main() {
 	filename := flag.String("config", "config.toml", "Path to configuration file")
 
 	flag.Parse()
-	defer glog.Flush()
 
 	application := system.NewApplication(filename, dcrstakepoolLog)
 	if err = application.LoadTemplates(); err != nil {
