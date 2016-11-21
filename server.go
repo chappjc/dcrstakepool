@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/context"
@@ -47,23 +45,8 @@ func main() {
 	application.LoadTemplates()
 
 	// Set up signal handler
-	// SIGUSR1 = Reload html templates
-	sigs := make(chan os.Signal, 1)
-
-	signal.Notify(sigs, syscall.SIGUSR1)
-
-	go func() {
-		for {
-			sig := <-sigs
-			dcrstakepoolLog.Infof("Received: %s", sig)
-			fmt.Fprintf(os.Stdout, "Received: %s\n", sig)
-			if sig == syscall.SIGUSR1 {
-				application.LoadTemplates()
-				dcrstakepoolLog.Infof("LoadTemplates() executed.")
-				fmt.Fprintf(os.Stdout, "LoadTemplates() executed.\n")
-			}
-		}
-	}()
+	// SIGUSR1 = Reload html templates (On nix systems)
+	system.ReloadTemplatesSig(application)
 
 	dcrrpcclient.UseLogger(dcrstakepoolLog)
 
