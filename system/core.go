@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btclog"
 	"github.com/decred/dcrstakepool/models"
-	"github.com/golang/glog"
 	"github.com/gorilla/sessions"
 	"github.com/pelletier/go-toml"
 	"github.com/zenazn/goji/web"
@@ -32,13 +32,23 @@ type Application struct {
 	Store          *sessions.CookieStore
 	DbMap          *gorp.DbMap
 	CsrfProtection *CsrfProtection
+	Logger         btclog.Logger
+}
+
+func NewApplication(filename *string, logger btclog.Logger) *Application {
+	app := &Application{Logger: logger}
+
+	app.Init(filename)
+
+	return app
 }
 
 func (application *Application) Init(filename *string) {
 
 	config, err := toml.LoadFile(*filename)
 	if err != nil {
-		glog.Fatalf("TOML load failed: %s\n", err)
+		application.Logger.Critical("TOML load failed: %s\n", err)
+		os.Exit(1)
 	}
 
 	hash := sha256.New()
@@ -109,7 +119,7 @@ func (application *Application) LoadTemplates() error {
 }
 
 func (application *Application) Close() {
-	glog.Info("Bye!")
+	application.Logger.Info("Bye!")
 }
 
 // Route returns a Goji web.HandlerType (a route) for the method named "route"
@@ -132,7 +142,7 @@ func (application *Application) Route(controller interface{}, route string) inte
 		if session, exists := c.Env["Session"]; exists {
 			err := session.(*sessions.Session).Save(r, w)
 			if err != nil {
-				glog.Errorf("Can't save session: %v", err)
+				application.Logger.Errorf("Can't save session: %v", err)
 			}
 		}
 

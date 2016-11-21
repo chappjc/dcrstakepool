@@ -39,10 +39,11 @@ func main() {
 	flag.Parse()
 	defer glog.Flush()
 
-	var application = &system.Application{}
-
-	application.Init(filename)
-	application.LoadTemplates()
+	application := system.NewApplication(filename, dcrstakepoolLog)
+	if err = application.LoadTemplates(); err != nil {
+		dcrstakepoolLog.Criticalf("Failed to load templates: %v", err)
+		os.Exit(1)
+	}
 
 	// Set up signal handler
 	// SIGUSR1 = Reload html templates (On nix systems)
