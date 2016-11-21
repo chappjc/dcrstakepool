@@ -12,7 +12,7 @@ import (
 	"github.com/decred/dcrstakepool/controllers"
 	"github.com/decred/dcrstakepool/system"
 
-	"github.com/zenazn/goji"
+	"github.com/zenazn/goji/bind"
 	"github.com/zenazn/goji/graceful"
 	"github.com/zenazn/goji/web"
 	"github.com/zenazn/goji/web/middleware"
@@ -21,6 +21,10 @@ import (
 var (
 	cfg *config
 )
+
+func init() {
+	bind.WithFlag()
+}
 
 func main() {
 	// Load configuration and parse command line.  This function also
@@ -33,9 +37,13 @@ func main() {
 	dcrstakepoolLog.Infof("Version: %s", version())
 	dcrstakepoolLog.Infof("Network: %s", activeNetParams.Params.Name)
 
+	// Until flag import is removed along with glog, this will allow go-flags
+	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
 	filename := flag.String("config", "config.toml", "Path to configuration file")
 
 	flag.Parse()
+
+	fmt.Println(bind.Default().Addr().String())
 
 	application := system.NewApplication(filename, dcrstakepoolLog)
 	if err = application.LoadTemplates(); err != nil {
@@ -58,13 +66,18 @@ func main() {
 	http.Handle("/assets/", static)
 
 	// Apply middleware
-	goji.Use(application.ApplyTemplates)
-	goji.Use(application.ApplySessions)
-	goji.Use(application.ApplyDbMap)
-	goji.Use(application.ApplyAuth)
-	goji.Use(application.ApplyIsXhr)
-	goji.Use(application.ApplyCsrfProtection)
-	goji.Use(context.ClearHandler)
+	app := web.New()
+	app.Use(middleware.RequestID)
+	app.Use(middleware.Logger) // TODO: reimplement to use our logger
+	app.Use(middleware.Recoverer)
+
+	app.Use(application.ApplyTemplates)
+	app.Use(application.ApplySessions)
+	app.Use(application.ApplyDbMap)
+	app.Use(application.ApplyAuth)
+	app.Use(application.ApplyIsXhr)
+	app.Use(application.ApplyCsrfProtection)
+	app.Use(context.ClearHandler)
 
 	controller, err := controllers.NewMainController(activeNetParams.Params,
 		cfg.AdminIPs, cfg.BaseURL, cfg.ClosePool, cfg.ClosePoolMsg,
@@ -95,65 +108,71 @@ func main() {
 	controller.RPCStart()
 
 	// Couple of files - in the real world you would use nginx to serve them.
-	goji.Get("/robots.txt", http.FileServer(http.Dir(publicPath)))
-	goji.Get("/favicon.ico", http.FileServer(http.Dir(publicPath+"/images")))
+	app.Get("/robots.txt", http.FileServer(http.Dir(publicPath)))
+	app.Get("/favicon.ico", http.FileServer(http.Dir(publicPath+"/images")))
 
 	// Home page
-	goji.Get("/", application.Route(controller, "Index"))
+	app.Get("/", application.Route(controller, "Index"))
 
 	// Address form
-	goji.Get("/address", application.Route(controller, "Address"))
-	goji.Post("/address", application.Route(controller, "AddressPost"))
+	app.Get("/address", application.Route(controller, "Address"))
+	app.Post("/address", application.Route(controller, "AddressPost"))
 
 	// API
-	goji.Handle("/api/*", application.Route(controller, "API"))
+	app.Handle("/api/*", application.Route(controller, "API"))
 
 	// Email change/update confirmation
-	goji.Get("/emailupdate", application.Route(controller, "EmailUpdate"))
+	app.Get("/emailupdate", application.Route(controller, "EmailUpdate"))
 
 	// Email verification
-	goji.Get("/emailverify", application.Route(controller, "EmailVerify"))
+	app.Get("/emailverify", application.Route(controller, "EmailVerify"))
 
 	// Error page
-	goji.Get("/error", application.Route(controller, "Error"))
+	app.Get("/error", application.Route(controller, "Error"))
 
 	// Password Reset routes
-	goji.Get("/passwordreset", application.Route(controller, "PasswordReset"))
-	goji.Post("/passwordreset", application.Route(controller, "PasswordResetPost"))
+	app.Get("/passwordreset", application.Route(controller, "PasswordReset"))
+	app.Post("/passwordreset", application.Route(controller, "PasswordResetPost"))
 
 	// Password Update routes
-	goji.Get("/passwordupdate", application.Route(controller, "PasswordUpdate"))
-	goji.Post("/passwordupdate", application.Route(controller, "PasswordUpdatePost"))
+	app.Get("/passwordupdate", application.Route(controller, "PasswordUpdate"))
+	app.Post("/passwordupdate", application.Route(controller, "PasswordUpdatePost"))
 
 	// Settings routes
-	goji.Get("/settings", application.Route(controller, "Settings"))
-	goji.Post("/settings", application.Route(controller, "SettingsPost"))
+	app.Get("/settings", application.Route(controller, "Settings"))
+	app.Post("/settings", application.Route(controller, "SettingsPost"))
 
 	// Sign In routes
-	goji.Get("/signin", application.Route(controller, "SignIn"))
-	goji.Post("/signin", application.Route(controller, "SignInPost"))
+	app.Get("/signin", application.Route(controller, "SignIn"))
+	app.Post("/signin", application.Route(controller, "SignInPost"))
 
 	// Sign Up routes
-	goji.Get("/signup", application.Route(controller, "SignUp"))
-	goji.Post("/signup", application.Route(controller, "SignUpPost"))
+	app.Get("/signup", application.Route(controller, "SignUp"))
+	app.Post("/signup", application.Route(controller, "SignUpPost"))
 
 	// Stats
-	goji.Get("/stats", application.Route(controller, "Stats"))
+	app.Get("/stats", application.Route(controller, "Stats"))
 
 	// Status
-	goji.Get("/status", application.Route(controller, "Status"))
+	app.Get("/status", application.Route(controller, "Status"))
 
 	// Tickets routes
-	goji.Get("/tickets", application.Route(controller, "Tickets"))
-	goji.Post("/tickets", application.Route(controller, "TicketsPost"))
+	app.Get("/tickets", application.Route(controller, "Tickets"))
+	app.Post("/tickets", application.Route(controller, "TicketsPost"))
 
 	// KTHXBYE
-	goji.Get("/logout", application.Route(controller, "Logout"))
+	app.Get("/logout", application.Route(controller, "Logout"))
 
 	graceful.PostHook(func() {
 		controller.RPCStop()
 		application.Close()
 	})
-	goji.Abandon(middleware.Logger)
-	goji.Serve()
+	app.Abandon(middleware.Logger)
+	app.Compile()
+
+	server := &http.Server{Handler: app}
+	listener := bind.Default()
+	//listener := net.Listen("tcp", addr)
+	server.Serve(listener)
+	//http.Serve(listener, app)
 }
