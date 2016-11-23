@@ -58,15 +58,16 @@ func main() {
 	dcrrpcclient.UseLogger(dcrstakepoolLog)
 
 	// Setup static files
-	static := web.New()
 	publicPath := application.Config.Get("general.public_path").(string)
-	static.Get("/assets/*", http.StripPrefix("/assets/",
-		http.FileServer(http.Dir(publicPath))))
-
-	http.Handle("/assets/", static)
+	assetHandler := http.StripPrefix("/assets/",
+		http.FileServer(http.Dir(publicPath)))
+	// static := web.New()
+	// static.Get("/assets/*", assetHandler)
 
 	// Apply middleware
 	app := web.New()
+	app.Handle("/assets/*", assetHandler)
+
 	app.Use(middleware.RequestID)
 	app.Use(middleware.Logger) // TODO: reimplement to use our logger
 	app.Use(middleware.Recoverer)
@@ -170,6 +171,7 @@ func main() {
 	app.Abandon(middleware.Logger)
 	app.Compile()
 
+	//static.Handle("/*", app) // to use static as http.Server's Handler
 	server := &http.Server{Handler: app}
 	listener := bind.Default()
 	//listener := net.Listen("tcp", addr)
