@@ -10,34 +10,32 @@ type Response struct {
 	Data    *json.RawMessage `json:"data,omitempty"`
 }
 
-// TODO: make JSON tags lower-case and add "_" between words
-
 type PurchaseInfo struct {
-	PoolAddress   string `json:"PoolAddress"`
-	PoolFees      string `json:"PoolFees"`
-	Script        string `json:"Script"`
-	TicketAddress string `json:"TicketAddress"`
+	PoolAddress   string `json:"pool_address"`
+	PoolFees      string `json:"pool_fees"`
+	Script        string `json:"script"`
+	TicketAddress string `json:"ticket_address"`
 }
 
 type Stats struct {
-	AllMempoolTix    string `json:"AllMempoolTix"`
-	BlockHeight      string `json:"BlockHeight"`
-	Difficulty       string `json:"Difficulty"`
-	Immature         string `json:"Immature"`
-	Live             string `json:"Live"`
-	Missed           string `json:"Missed"`
-	OwnMempoolTix    string `json:"OwnMempoolTix"`
-	PoolSize         string `json:"PoolSize"`
-	ProportionLive   string `json:"ProportionLive"`
-	ProportionMissed string `json:"ProportionMissed"`
-	Revoked          string `json:"Revoked"`
-	TotalSubsidy     string `json:"TotalSubsidy"`
-	Voted            string `json:"Voted"`
-	Network          string `json:"Network"`
-	PoolEmail        string `json:"PoolEmail"`
-	PoolFees         string `json:"PoolFees"`
-	PoolStatus       string `json:"PoolStatus"`
-	UserCount        string `json:"UserCount"`
-	UserCountActive  string `json:"UserCountActive"`
-	Version          string `json:"Version"`
+	AllMempoolTix    string `json:"allmempooltix"`
+	BlockHeight      string `json:"block_height"`
+	Difficulty       string `json:"difficulty"`
+	Immature         string `json:"immature"`
+	Live             string `json:"live"`
+	Missed           string `json:"missed"`
+	OwnMempoolTix    string `json:"ownmempooltix"`
+	PoolSize         string `json:"pool_size"`
+	ProportionLive   string `json:"proportion_live"`
+	ProportionMissed string `json:"proportion_missed"`
+	Revoked          string `json:"revoked"`
+	TotalSubsidy     string `json:"total_subsidy"`
+	Voted            string `json:"voted"`
+	Network          string `json:"network"`
+	PoolEmail        string `json:"pool_email"`
+	PoolFees         string `json:"pool_fees"`
+	PoolStatus       string `json:"pool_status"`
+	UserCount        string `json:"user_count"`
+	UserCountActive  string `json:"user_count_active"`
+	Version          string `json:"version"`
 }

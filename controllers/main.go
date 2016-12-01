@@ -150,7 +150,7 @@ func (controller *MainController) API(c web.C, r *http.Request) *system.APIRespo
 	switch r.Method {
 	case "GET":
 		switch command {
-		case "getPurchaseInfo":
+		case "getpurchaseinfo":
 			data, response, err = controller.APIPurchaseInfo(c, r)
 		case "startsession":
 			status, response = "success", "session started"
