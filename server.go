@@ -185,7 +185,6 @@ func main() {
 		controller.RPCStop()
 		application.Close()
 	})
-	app.Abandon(middleware.Logger)
 	app.Compile()
 
 	server := &http.Server{Handler: app}
