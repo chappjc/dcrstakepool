@@ -85,7 +85,9 @@ func main() {
 	app.Handle("/assets/*", assetHandler)
 
 	app.Use(middleware.RequestID)
-	app.Use(middleware.Logger) // TODO: reimplement to use our logger
+	// system.Logger logs start and end of each HTTP request, and must follow
+	// middleware.RequestID.
+	app.Use(system.Logger)
 	app.Use(middleware.Recoverer)
 
 	app.Use(application.ApplyTemplates)

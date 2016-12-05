@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/decred/dcrstakepool/models"
 	"github.com/go-utils/uslice"
 	"github.com/gorilla/sessions"
 	"github.com/zenazn/goji/web"
+	"github.com/zenazn/goji/web/middleware"
+	"github.com/zenazn/goji/web/mutil"
 	"gopkg.in/gorp.v1"
 )
 
@@ -132,5 +135,32 @@ func (application *Application) ApplyCsrfProtection(c *web.C, h http.Handler) ht
 		})
 		h.ServeHTTP(w, r)
 	}
+	return http.HandlerFunc(fn)
+}
+
+// Logger is a middleware that logs the start and end of each request, along
+// with some useful data about what was requested, what the response status was,
+// and how long it took to return. This should be used after the RequestID
+// middleware.
+func Logger(c *web.C, h http.Handler) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		reqID := middleware.GetReqID(*c)
+
+		log.Infof("[%s] Started %s %q, from %s", reqID, r.Method,
+			r.URL.String(), GetClientIP(r))
+
+		lw := mutil.WrapWriter(w)
+
+		t1 := time.Now()
+		h.ServeHTTP(lw, r)
+
+		if lw.Status() == 0 {
+			lw.WriteHeader(http.StatusOK)
+		}
+		t2 := time.Now()
+
+		log.Infof("[%s] Returning %03d in %s", reqID, lw.Status(), t2.Sub(t1))
+	}
+
 	return http.HandlerFunc(fn)
 }

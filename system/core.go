@@ -186,3 +186,27 @@ type APIResponse struct {
 func NewAPIResponse(status, message string, data interface{}) *APIResponse {
 	return &APIResponse{status, message, data}
 }
+
+// GetClientIP gets the client's real IP address using the X-Real-IP header, or
+// if that is empty, http.Request.RemoteAddr. See the sample nginx.conf for
+// using the real_ip module to correctly set the X-Real-IP header.
+func GetClientIP(r *http.Request) string {
+	getHost := func(ip string) string {
+		if strings.Contains(ip, ":") {
+			parts := strings.Split(ip, ":")
+			return parts[0]
+		}
+		return ip
+	}
+
+	realIP := r.Header.Get("X-Real-IP")
+	realIP = getHost(realIP)
+
+	if realIP == "" {
+		log.Info(`"X-Real-IP" header invalid, using RemoteAddr instead`)
+		// If this somehow errors, just go with empty
+		realIP = getHost(r.RemoteAddr)
+	}
+
+	return realIP
+}
