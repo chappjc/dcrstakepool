@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/smtp"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -1073,7 +1074,7 @@ func (controller *MainController) SettingsPost(c web.C, r *http.Request) (string
 			Expires:  expires.Unix(),
 		}
 
-		if err := models.InsertEmailChange(dbMap, emailChange); err != nil {
+		if err = models.InsertEmailChange(dbMap, emailChange); err != nil {
 			session.AddFlash("Unable to add email change token to database", "settingsError")
 			log.Errorf("Unable to add email change token to database: %v", err)
 			return controller.Settings(c, r)
@@ -1430,25 +1431,58 @@ func (controller *MainController) Status(c web.C, r *http.Request) (string, int)
 	return controller.Parse(t, "main", c.Env), http.StatusOK
 }
 
+// ByTicketHeight type implements sort.Sort for types with a TicketHeight field.
+// This includes all valid tickets, including spend tickets.
+type ByTicketHeight map[int]TicketInfoLive
+
+func (a ByTicketHeight) Len() int {
+	return len(a)
+}
+func (a ByTicketHeight) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+func (a ByTicketHeight) Less(i, j int) bool {
+	return a[i].TicketHeight < a[j].TicketHeight
+}
+
+// BySpentByHeight type implements sort.Sort for types with a SpentByHeight
+// field, namely TicketInfoHistoric, the type for voted/missed/expired tickets.
+type BySpentByHeight map[int]TicketInfoHistoric
+
+func (a BySpentByHeight) Len() int {
+	return len(a)
+}
+func (a BySpentByHeight) Swap(i, j int) {
+	a[i], a[j] = a[j], a[i]
+}
+func (a BySpentByHeight) Less(i, j int) bool {
+	return a[i].SpentByHeight < a[j].SpentByHeight
+}
+
+// TicketInfoHistoric represents spent tickets, either voted or revoked.
+type TicketInfoHistoric struct {
+	Ticket        string
+	SpentBy       string
+	SpentByHeight uint32
+	TicketHeight  uint32
+}
+
+// TicketInfoInvalid represents tickets that were not added by the wallets for
+// any reason (e.g. incorrect subsidy address or pool fees).
+type TicketInfoInvalid struct {
+	Ticket string
+}
+
+// TicketInfoLive represents live or immature (mined) tickets that have yet to
+// be spent by either a vote or revocation.
+type TicketInfoLive struct {
+	Ticket       string
+	TicketHeight uint32
+	VoteBits     uint16
+}
+
 // Tickets renders the tickets page.
 func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int) {
-	type TicketInfoHistoric struct {
-		Ticket        string
-		SpentBy       string
-		SpentByHeight uint32
-		TicketHeight  uint32
-	}
-
-	type TicketInfoInvalid struct {
-		Ticket string
-	}
-
-	type TicketInfoLive struct {
-		Ticket       string
-		TicketHeight uint32
-		VoteBits     uint16
-	}
-
 	ticketInfoInvalid := map[int]TicketInfoInvalid{}
 	ticketInfoLive := map[int]TicketInfoLive{}
 	ticketInfoMissed := map[int]TicketInfoHistoric{}
@@ -1605,6 +1639,13 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 			ticketInfoInvalid[idx] = TicketInfoInvalid{ticket}
 		}
 	}
+
+	// Sort live tickets
+	sort.Sort(ByTicketHeight(ticketInfoLive))
+
+	// Sort historic (voted and revoked) tickets
+	sort.Sort(BySpentByHeight(ticketInfoVoted))
+	sort.Sort(BySpentByHeight(ticketInfoMissed))
 
 	c.Env["TicketsInvalid"] = ticketInfoInvalid
 	c.Env["TicketsLive"] = ticketInfoLive
