@@ -42,6 +42,7 @@ const (
 	defaultRecaptchaSitekey = "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
 	defaultSMTPHost         = ""
 	defaultMinServers       = 2
+	defaultMaxVotedAge      = 8640
 )
 
 var (
@@ -107,6 +108,7 @@ type config struct {
 	AdminIPs           []string `long:"adminips" description:"Expected admin host"`
 	MinServers         int      `long:"minservers" description:"Minimum number of wallets connected needed to avoid errors"`
 	EnableStakepoold   bool     `long:"enablestakepoold" description:"Enable communication with stakepoold"`
+	MaxVotedAge        int64    `long:"maxvotedage" description:"Maximum vote age (blocks since vote) to include in voted tickets table"`
 }
 
 // serviceOptions defines the configuration options for the daemon as a service
@@ -304,6 +306,7 @@ func loadConfig() (*config, []string, error) {
 		SMTPHost:         defaultSMTPHost,
 		Version:          version(),
 		MinServers:       defaultMinServers,
+		MaxVotedAge:      defaultMaxVotedAge,
 	}
 
 	// Service options which are only added on Windows.
