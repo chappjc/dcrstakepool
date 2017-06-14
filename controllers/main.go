@@ -32,12 +32,6 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// disapproveBlockMask checks to see if the votebits have been set to No.
-const disapproveBlockMask = 0x0000
-
-// approveBlockMask checks to see if votebits have been set to Yes.
-const approveBlockMask = 0x0001
-
 const signupEmailTemplate = "A request for an account for __URL__\r\n" +
 	"was made from __REMOTEIP__ for this email address.\r\n\n" +
 	"If you made this request, follow the link below:\r\n\n" +
@@ -1680,6 +1674,7 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	var ticketInfoInvalid []TicketInfoInvalid
 	var ticketInfoLive []TicketInfoLive
 	var ticketInfoVoted, ticketInfoExpired, ticketInfoMissed []TicketInfoHistoric
+	var numVoted int
 
 	responseHeaderMap := make(map[string]string)
 	c.Env["ResponseHeaderMap"] = responseHeaderMap
@@ -1702,8 +1697,8 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	user, _ := models.GetUserById(dbMap, session.Values["UserId"].(int64))
 
 	if user.MultiSigAddress == "" {
-		c.Env["Error"] = "No multisig data has been generated"
 		log.Info("Multisigaddress empty")
+		return "/address", http.StatusSeeOther
 	}
 
 	if controller.RPCIsStopped() {
@@ -1713,8 +1708,8 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	// Get P2SH Address
 	multisig, err := dcrutil.DecodeAddress(user.MultiSigAddress, controller.params)
 	if err != nil {
-		c.Env["Error"] = "Invalid multisig data in database"
 		log.Infof("Invalid address %v in database: %v", user.MultiSigAddress, err)
+		return "/error", http.StatusInternalServerError
 	}
 
 	log.Infof("Tickets GET from %v, multisig %v", remoteIP,
@@ -1754,12 +1749,13 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 					TicketHeight:  ticket.TicketHeight,
 				})
 			case "voted":
-				ticketInfoVoted = append(ticketInfoVoted, TicketInfoHistoric{
-					Ticket:        ticket.Ticket,
-					SpentBy:       ticket.SpentBy,
-					SpentByHeight: ticket.SpentByHeight,
-					TicketHeight:  ticket.TicketHeight,
-				})
+				numVoted++
+				// 	ticketInfoVoted = append(ticketInfoVoted, TicketInfoHistoric{
+				// 		Ticket:        ticket.Ticket,
+				// 		SpentBy:       ticket.SpentBy,
+				// 		SpentByHeight: ticket.SpentByHeight,
+				// 		TicketHeight:  ticket.TicketHeight,
+				// 	})
 			}
 		}
 
@@ -1772,13 +1768,14 @@ func (controller *MainController) Tickets(c web.C, r *http.Request) (string, int
 	sort.Sort(ByTicketHeight(ticketInfoLive))
 
 	// Sort historic (voted and revoked) tickets
-	sort.Sort(BySpentByHeight(ticketInfoVoted))
+	//sort.Sort(BySpentByHeight(ticketInfoVoted))
 	sort.Sort(BySpentByHeight(ticketInfoMissed))
 
 	c.Env["TicketsInvalid"] = ticketInfoInvalid
 	c.Env["TicketsLive"] = ticketInfoLive
 	c.Env["TicketsExpired"] = ticketInfoExpired
 	c.Env["TicketsMissed"] = ticketInfoMissed
+	c.Env["TicketsCount"] = numVoted
 	c.Env["TicketsVoted"] = ticketInfoVoted
 	widgets := controller.Parse(t, "tickets", c.Env)
 
@@ -1945,3 +1942,11 @@ func (controller *MainController) IsValidVoteBits(userVoteBits uint16) bool {
 	return userVoteBits&^usedBits == 0
 }
 
+func stringSliceContains(s []string, e string) bool {
+	for _, a := range s {
+		if a == e {
+			return true
+		}
+	}
+	return false
+}
